@@ -1,0 +1,218 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CITIZEN
+  DEPARTMENT_OFFICER
+  SUPERVISOR
+  ADMINISTRATOR
+}
+
+enum AccountStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+}
+
+enum ProjectStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  SCHEDULED
+  IN_PROGRESS
+  RESTORATION_PENDING
+  COMPLETED
+  ON_HOLD
+  REJECTED
+  CANCELLED
+}
+
+enum ConflictStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+  ACCEPTED_EXCEPTION
+  DISMISSED
+}
+
+enum ComplaintStatus {
+  OPEN
+  ACKNOWLEDGED
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  REJECTED
+}
+
+model User {
+  id           String        @id @default(cuid())
+  name         String
+  email        String        @unique
+  passwordHash String
+  role         UserRole      @default(CITIZEN)
+  accountStatus AccountStatus @default(ACTIVE)
+  departmentId String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  department   Department?   @relation(fields: [departmentId], references: [id])
+  projectsCreated Project[]  @relation("ProjectCreator")
+  progressUpdates ProgressUpdate[]
+  complaints   Complaint[]
+  auditEvents  AuditEvent[]
+  notifications Notification[]
+  inspections  Inspection[]
+}
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String
+  type        String
+  jurisdiction String?
+  createdAt   DateTime @default(now())
+
+  members     User[]
+  projects    Project[]
+}
+
+model Project {
+  id                 String        @id @default(cuid())
+  title              String
+  description        String
+  purpose            String
+  workType           String
+  departmentId       String
+  createdById        String
+  contractorName     String?
+  address            String
+  locality           String
+  latitude           Float
+  longitude          Float
+  workAreaGeoJson    Json?
+  plannedStart       DateTime
+  plannedEnd         DateTime
+  actualStart        DateTime?
+  actualEnd          DateTime?
+  originalPlannedEnd DateTime
+  status             ProjectStatus @default(DRAFT)
+  publicVisibility   Boolean       @default(false)
+  budget             Float?
+  delayReason        String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  department         Department    @relation(fields: [departmentId], references: [id])
+  createdBy          User          @relation("ProjectCreator", fields: [createdById], references: [id])
+  progressUpdates    ProgressUpdate[]
+  complaints         Complaint[]
+  conflictsAsA       Conflict[]    @relation("ConflictA")
+  conflictsAsB       Conflict[]    @relation("ConflictB")
+  inspections        Inspection[]
+  schedules          ScheduleRevision[]
+
+  @@index([departmentId, status])
+  @@index([plannedStart, plannedEnd])
+  @@index([locality])
+}
+
+model ScheduleRevision {
+  id             String   @id @default(cuid())
+  projectId      String
+  oldStart       DateTime
+  oldEnd         DateTime
+  newStart       DateTime
+  newEnd         DateTime
+  reason         String
+  changedById    String
+  createdAt      DateTime @default(now())
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model Conflict {
+  id              String         @id @default(cuid())
+  projectAId      String
+  projectBId      String
+  reason          String
+  severity        String         @default("HIGH")
+  status          ConflictStatus @default(OPEN)
+  resolution      String?
+  resolvedById    String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  projectA        Project        @relation("ConflictA", fields: [projectAId], references: [id], onDelete: Cascade)
+  projectB        Project        @relation("ConflictB", fields: [projectBId], references: [id], onDelete: Cascade)
+
+  @@unique([projectAId, projectBId])
+}
+
+model ProgressUpdate {
+  id          String   @id @default(cuid())
+  projectId   String
+  authorId    String
+  milestone   String
+  notes       String
+  evidenceUrl String?
+  percent     Int?
+  createdAt   DateTime @default(now())
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author      User     @relation(fields: [authorId], references: [id])
+}
+
+model Complaint {
+  id          String          @id @default(cuid())
+  projectId   String
+  citizenId   String
+  category    String
+  description String
+  evidenceUrl String?
+  status      ComplaintStatus @default(OPEN)
+  response    String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  citizen     User            @relation(fields: [citizenId], references: [id])
+}
+
+model Inspection {
+  id          String   @id @default(cuid())
+  projectId   String
+  inspectorId String
+  outcome     String
+  notes       String
+  evidenceUrl String?
+  createdAt   DateTime @default(now())
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  inspector   User     @relation(fields: [inspectorId], references: [id])
+}
+
+model AuditEvent {
+  id         String   @id @default(cuid())
+  actorId    String
+  entityType String
+  entityId   String
+  action     String
+  details    Json?
+  createdAt  DateTime @default(now())
+  actor      User     @relation(fields: [actorId], references: [id])
+
+  @@index([entityType, entityId, createdAt])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+}
